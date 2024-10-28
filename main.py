@@ -5,6 +5,7 @@ import sqlite3
 import requests
 from pandas import json_normalize
 from lcuapi import LCU
+from lcuapi.exceptions import LCUClosedError, LCUDisconnectedError
 import random
 import asyncio
 
@@ -18,17 +19,15 @@ con = sqlite3.connect("sus.db")
 cursor = con.cursor()
 
 
-# Define Riot API Key
-key = open("riotKey.txt").read()
-
-
 # Connect to league client api
-"""lcu = LCU()
+lcu = LCU()
 lcu.wait_for_client_to_open()
 lcu.wait_for_login()
-"""
-# ans = lcu.get("/lol-match-history/v1/game-timelines/7164199652")
-# print(ans)
+
+
+# Global variables
+key = open("riotKey.txt").read()  # Define Riot API Key
+gameData = {}  # save game data here
 
 
 # Converts an api response to a readable dict
@@ -121,6 +120,10 @@ def getGameState(ctx):
     return res[0][0]
 
 
+async def processData(game):
+    pass
+
+
 # When bot gets online
 @bot.event
 async def on_ready():
@@ -196,6 +199,13 @@ async def play(
         team: discord.Option(str, description="Team de gauche / team de droite / aucun pour ne pas jouer", choices=["gauche", "droite", "aucun", "reset"]),
         player: discord.Option(str, description="Pour ajouter / enlever quelqu'un d'une team", required=False, default="")
 ):
+    # Vérifie le game state
+    cursor.execute("SELECT inGame FROM guildInfo WHERE guildId = ?", (ctx.guild.id,))
+    res = cursor.fetchall()
+    if res[0][0] != 0 and team != "reset":
+        await ctx.respond("Les rôles pour cette partie ont déjà été donnés visiblement. Pour TOUT reset, exécute `/play reset`")
+        return
+
     if not player:  # Sélectionne l'auteur du message comme player par défaut
         player = ctx.author.id
     else:  # Sinon récupère l'id de la personne forcée
@@ -208,7 +218,9 @@ async def play(
     elif team == "aucun":
         team = -1
     else:  # team = reset
+        # Supprime toutes les infos de la partie et reset le game state
         cursor.execute("DELETE FROM game")
+        cursor.execute("UPDATE guildInfo SET inGame = ? WHERE guildId = ?", (0, ctx.guild.id))
         con.commit()
         await ctx.respond("Partie reset.")
         return
@@ -217,7 +229,7 @@ async def play(
     if team == -1:
         cursor.execute("DELETE FROM game WHERE discordId = ?", (player,))
         con.commit()
-        await ctx.respond("Ah, tu nous détestes.")
+        await ctx.respond(f"Ah, {'<@'+str(player)+'>, ' if ctx.author.id != player else ''} tu nous détestes.")
         return
 
     # Check que le joueur n'est pas déjà dans une équipe
@@ -238,10 +250,10 @@ async def play(
 
     # Enlève le joueur de l'autre équipe au cas où, puis l'ajoute à la bonne
     cursor.execute("DELETE FROM game WHERE discordId = ?", (player,))
-    cursor.execute("INSERT INTO game VALUES (?, ?, ?, ?, ?)", (player, team, None, None, ctx.guild.id))
+    cursor.execute("INSERT INTO game VALUES (?, ?, ?, ?, ?, ?)", (player, team, None, None, ctx.guild.id, None))
     con.commit()
 
-    await ctx.respond(f"Tu joues maintenant dans l'**équipe de {'gauche' if team == 0 else 'droite'}**.")
+    await ctx.respond(f"{'<@'+str(player)+'>, tu' if player != ctx.author.id else 'Tu'} joues maintenant dans l'**équipe de {'gauche' if team == 0 else 'droite'}**.")
 
 
 @bot.slash_command(
@@ -258,7 +270,7 @@ async def game(ctx):
 )
 async def roles(ctx):
     # Vérifie que les rôles n'ont pas déjà été donné
-    if getGameState(ctx) == 1:
+    if getGameState(ctx) >= 1:
         await ctx.respond("Je partage l'engouement, mais les rôles ont déjà été donnés pour cette partie !")
         return
 
@@ -351,7 +363,7 @@ async def gamble(
         return
 
     # Vérifie que la partie n'a pas encore commencé
-    if getGameState(ctx) == 3:
+    if getGameState(ctx) not in [1, 2]:
         await ctx.respond("Trop tard... la partie a déjà commencé depuis plus de 30 secondes.")
         return
 
@@ -402,7 +414,7 @@ async def position(
         return
 
     # Vérifie que la partie n'a pas encore commencé
-    if getGameState(ctx) == 3:
+    if getGameState(ctx) not in [2, 3]:
         await ctx.respond("Trop tard... la partie a déjà commencé depuis plus de 30 secondes.")
         return
 
@@ -417,7 +429,7 @@ async def position(
 )
 async def start(ctx):
     # Vérifie que la partie n'a pas déjà été lancée
-    if getGameState(ctx) in [2, 3]:
+    if getGameState(ctx) != 1:
         await ctx.respond("Je partage l'engouement, mais la partie a déjà été lancée !")
         return
 
@@ -428,14 +440,125 @@ async def start(ctx):
     await ctx.respond("Partie lancée... GLHF ! ⚔️")
 
     # Attend un peu pour laisser le temps au gambler
-    await asyncio.sleep(30)
+    await asyncio.sleep(25)
 
     # Avance l'état de la partie pour lock les gamble
     cursor.execute("UPDATE guildInfo SET inGame = ? WHERE guildId = ?", (3, ctx.guild.id))
     con.commit()
 
+    # Envoyer les ordres aux droïdes...
     await asyncio.sleep(10)
     await ctx.author.send("coucou")
+
+
+@bot.slash_command(
+    name="end",
+    description="Pour indiquer au bot que la partie est terminée !"
+)
+async def end(
+        ctx,
+        data: discord.Option(discord.Attachment, description="A remplir si Spy ne joue pas.", required=False) = None
+):
+    # Check previous game state
+    if getGameState(ctx) != 3:
+        await ctx.respond("La partie n'est pas en cours !")
+        return
+
+    # Get data from file if provided else try from LCU
+    global gameData
+    if data is None:
+        try:
+            gameData = lcu.get("/lol-match-history/v1/games/7164199652")
+        except (LCUClosedError, LCUDisconnectedError):
+            await ctx.channel.send(f"{ctx.author.mention} Spy n'est visiblement pas connecté, il me faut les données de la partie dans un .txt en argument :/")
+    else:
+        gameData = requests.get(data.url).json()
+
+    # Update game state
+    cursor.execute("UPDATE guildInfo SET inGame = ? WHERE guildId = ?", (4, ctx.guild.id))
+    con.commit()
+
+    # Répond avant d'envoyer les mp pour être sûr d'être dans les temps
+    await ctx.respond("Gg ! A présent, checkez vos MP pour guess les rôles de vos alliés ! 👀")
+
+    # DM each player and ask them to guess their teammates' roles
+    cursor.execute("SELECT discordId, teamId FROM game ORDER BY discordId")
+    players = cursor.fetchall()
+    for player in players:
+        # Retrouve le user
+        playerId, teamId = player[0], player[1]
+        playerUser = await bot.fetch_user(int(playerId))
+
+        # Crée l'embed en cherchant les teammates de l'utilisateur
+        embed = discord.Embed()
+        cursor.execute("SELECT discordId FROM game WHERE teamId = ? AND discordId != ? ORDER BY discordId", (teamId, playerId))
+        res = cursor.fetchall()
+        embed.add_field(name="Team alliée :", value="\n".join([f"**{i+1}** : <@!{res[i][0]}>" for i in range(len(res))]))
+
+        await playerUser.send(f"La partie est terminée !\n*Guess le rôle de tes alliés maintenant en utilisant `/report <rôle de l'allié 1> ... <rôle de l'allié 4>` ! Le numéro de tes teammates sont donnés ci-dessous*", embed=embed)
+
+
+@bot.slash_command(
+    name="report",
+    description="A utiliser EN MP pour faire tes guess sur les rôles de tes alliés lorsque la partie est terminée !"
+)
+async def report(
+        ctx,
+        role1: discord.Option(str, choices=["imposteur"] + list(listRoles().keys())),
+        role2: discord.Option(str, choices=["imposteur"] + list(listRoles().keys())),
+        role3: discord.Option(str, choices=["imposteur"] + list(listRoles().keys())),
+        role4: discord.Option(str, choices=["imposteur"] + list(listRoles().keys())),
+):
+    # Check game state
+    if getGameState(ctx) != 4:
+        await ctx.respond("La partie n'est pas encore terminée ! Si c'est pourtant le cas, exécute `/end <game_data>` dans le serveur discord !")
+        return
+
+    # Update guesses into db
+    roleList = [role1, role2, role3, role4]
+    cursor.execute("UPDATE game SET guess = ? WHERE discordId = ?", ("-".join(roleList), ctx.author.id))
+    con.commit()
+
+    # Create embed for double check
+    embed = discord.Embed()
+    cursor.execute("SELECT teamId FROM game WHERE discordId = ?", (ctx.author.id,))
+    teamId = cursor.fetchall()[0][0]
+    cursor.execute("SELECT discordId FROM game WHERE teamId = ? AND discordId != ? ORDER BY discordId", (teamId, ctx.author.id))
+    res = cursor.fetchall()
+    embed.add_field(name="Team alliée :", value="\n".join([f"<@!{res[i][0]}> : **{roleList[i]}**" for i in range(4)]))
+
+    await ctx.respond("Tes guess ont bien été enregistrés !", embed=embed)
+
+    # Check si c'est le dernier joueur à report
+    cursor.execute("SELECT * FROM game ORDER BY discordId")
+    game = cursor.fetchall()
+    allGuessed = True
+    for player in game:
+        if player[5] is None:
+            allGuessed = False
+            break
+
+    # Si c'est le dernier, change le game state et process la data, sinon attend les autre joueurs
+    if allGuessed:
+        cursor.execute("UPDATE guildInfo SET inGame = ? WHERE guildId = ?", (5, game[0][4]))
+        con.commit()
+        await processData(game)
+
+
+@bot.slash_command(
+    name="test"
+)
+async def test(ctx):
+    print(gameData["endOfGameResult"])
+
+
+@bot.slash_command(
+    name="gs"
+)
+async def gs(ctx, gamestate):
+    cursor.execute("UPDATE guildInfo SET inGame = ? WHERE guildId = ?", (gamestate, ctx.guild.id))
+    con.commit()
+    await ctx.respond("gs updated")
 
 
 # Run the bot
