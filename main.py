@@ -79,7 +79,7 @@ def listRoles():
             ["kda", "kad", "dka", "dak", "akd", "adk"]
         ),
         "réglo": (
-            "Dès que tu %which1 pour la première fois, tu dois %which2 toutes les 5 minutes au plus jusqu'à la fin de la partie.",
+            "Dès que tu %which1 pour la première fois (de préférence avant 8 min), tu dois %which2 toutes les 5 minutes au plus jusqu'à la fin de la partie.",
             [0, 1]
         ),
         "radin": (
@@ -87,7 +87,7 @@ def listRoles():
             []
         ),
         "philosophe": (
-            "Tu aimes bien prendre ton temps dans la vie. Tu feras donc durer la partie autant que possible.",
+            "Tu aimes bien prendre ton temps dans la vie. Mourir peut attendre, gagner aussi. Tu feras donc durer la partie autant que possible. Mais c'est mieux de gagner quand même.",
             []
         ),
         "gambler": (
@@ -120,8 +120,56 @@ def getGameState(ctx):
     return res[0][0]
 
 
-async def processData(game):
-    pass
+def addScore(discordId, score):
+    cursor.execute("SELECT score FROM player WHERE discordId = ?", (discordId,))
+    currentScore = cursor.fetchall()[0][0]
+
+    newScore = currentScore + score
+
+    cursor.execute("UPDATE player SET score = ? WHERE discordId = ?", (newScore, discordId))
+    con.commit()
+
+
+async def processData():
+    # Croiser les données de la game avec les stats des joueurs
+    # discordId teamId role subRole guildId guess discordId leaguePuuid score
+    teams = []
+    for t in [0, 1]:
+        cursor.execute(
+            "SELECT * FROM game JOIN player ON game.discordId = player.discordId WHERE game.teamId = ? ORDER BY game.discordId",
+            (t,)
+        )
+        teamt = cursor.fetchall()
+        teams.append(teamt)
+
+    # Envoyer un premier feedback
+    cursor.execute("SELECT playChannelId FROM guildId WHERE guildId = ?", (teams[0][0][4]))
+    playChannel = await bot.fetch_channel(int(cursor.fetchall()[0][0]))
+    await playChannel.send("J'ai bien reçu les guess de tout le monde, je traite la data et je reviens 🫡")
+
+    # Calculer les tableaux des guess
+    guessTab = []
+    for t in [0, 1]:
+        guessTabByTeam = []
+        for i, playeri in enumerate(teams[t]):
+            playerGuess = playeri[5].split("-")  # Tableau des guess que le joueur i de la team t a input
+            playerGuess.insert(i, None)  # Insérer un None pour avoir des indices cohérents pour l'itération qui suit
+            playerGuessCheck = []  # Tableau binaire des guess corrects du joueur i de la team t
+            for j, playerj in enumerate(teams[t]):
+                if i == j:
+                    playerGuessCheck.append(None)
+                else:
+
+                    playerGuessCheck.append(playerGuess[j] == playerj[2])
+
+            guessTabByTeam.append(playerGuessCheck)
+
+        guessTab.append(guessTabByTeam)
+
+    # Attribuer les points des guess pour chaque joueur de chaque team
+
+
+
 
 
 # When bot gets online
@@ -318,7 +366,7 @@ async def roles(ctx):
                     julietteId = int(teams[1-t][subRole][0])  # Choisit une Juliette dans l'équipe d'en face
                     description = description.replace("%joueur", f"<@{julietteId}>")
                 elif "%order" in description:  # Analyste
-                    description = description.replace("%order", f"{subRole[0]} ≤ {subRole[1]} ≤ {subRole[2]}")
+                    description = description.replace("%order", f"{subRole[0]} < {subRole[1]} < {subRole[2]}")
                 elif "%which1" in description:  # Réglo
                     which1 = "meures" if not subRole else "obtiens un takedown (kill ou assist)"
                     which2 = "mourir" if not subRole else "obtenir un takedown"
@@ -542,7 +590,7 @@ async def report(
     if allGuessed:
         cursor.execute("UPDATE guildInfo SET inGame = ? WHERE guildId = ?", (5, game[0][4]))
         con.commit()
-        await processData(game)
+        await processData()
 
 
 @bot.slash_command(
