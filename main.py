@@ -8,6 +8,7 @@ from lcuapi import LCU
 from lcuapi.exceptions import LCUClosedError, LCUDisconnectedError
 import random
 import asyncio
+from prettytable import PrettyTable
 
 
 # Creating the bot
@@ -143,33 +144,78 @@ async def processData():
         teams.append(teamt)
 
     # Envoyer un premier feedback
-    cursor.execute("SELECT playChannelId FROM guildId WHERE guildId = ?", (teams[0][0][4]))
+    cursor.execute("SELECT playChannelId FROM guildInfo WHERE guildId = ?", (teams[0][0][4],))
     playChannel = await bot.fetch_channel(int(cursor.fetchall()[0][0]))
-    await playChannel.send("J'ai bien reçu les guess de tout le monde, je traite la data et je reviens 🫡")
+    await playChannel.send("J'ai bien reçu les guess de tout le monde, je process la data et je reviens 🫡")
 
     # Calculer les tableaux des guess
-    guessTab = []
+    guessTab = []  # Contient les strings des guess
     for t in [0, 1]:
         guessTabByTeam = []
         for i, playeri in enumerate(teams[t]):
             playerGuess = playeri[5].split("-")  # Tableau des guess que le joueur i de la team t a input
             playerGuess.insert(i, None)  # Insérer un None pour avoir des indices cohérents pour l'itération qui suit
-            playerGuessCheck = []  # Tableau binaire des guess corrects du joueur i de la team t
-            for j, playerj in enumerate(teams[t]):
-                if i == j:
-                    playerGuessCheck.append(None)
-                else:
-
-                    playerGuessCheck.append(playerGuess[j] == playerj[2])
-
-            guessTabByTeam.append(playerGuessCheck)
-
+            guessTabByTeam.append(playerGuess)
         guessTab.append(guessTabByTeam)
 
-    # Attribuer les points des guess pour chaque joueur de chaque team
+    # Calculer les points de guess et les prettytables
+    tables = [PrettyTable(), PrettyTable()]
+    guessScore = []  # Contient pour chaque team les points gagnés et les points perdus par chaque couple de deux joueurs
+    for t in [0, 1]:
 
+        # Calcul du tableau des points gagnés par le player i de la team t
+        posScoreByTeam = []
+        for i, playeri in enumerate(teams[t]):
+            playerGuessPosScore = []
+            scorePerGuess = 1
+            if playeri[2] == "gambler":
+                scorePerGuess = 2
+            for j, playerj in enumerate(teams[t]):
+                if i == j:
+                    playerGuessPosScore.append(0)
+                else:
+                    score = scorePerGuess * (guessTab[t][i][j] == playerj[2])
+                    addScore(playeri[0], score)
+                    playerGuessPosScore.append(score)
 
+            posScoreByTeam.append(playerGuessPosScore)
 
+        guessScore.append(posScoreByTeam)
+
+        # Calcul du tableau des points perdus par le player i de la team t
+        negScoreByTeam = []
+        for i, playeri in enumerate(teams[t]):
+            playerGuessNegScore = []
+            scorePerGuess = -1
+            if playeri[2] in ["imposteur", "escroc"]:
+                scorePerGuess = -2
+            for j, playerj in enumerate(teams[t]):
+                if i == j:
+                    playerGuessNegScore.append(0)
+                else:
+                    score = scorePerGuess * (guessTab[t][j][i] == playeri[2])
+                    addScore(playeri[0], score)
+                    playerGuessNegScore.append(score)
+
+            negScoreByTeam.append(playerGuessNegScore)
+
+        guessScore.append(negScoreByTeam)
+
+        # Calcul des prettytables
+        # Première colonne / joueurs
+        tables[t].add_column(f"Team de {'gauche' if not t else 'droite'} :", ["\u200b"]*2 + [(await bot.fetch_user(player[0])).name for player in teams[t]])
+        # Deuxième colonne / points gagnés
+        tables[t].add_column("\u200b", ["\u200b"]*2 + [f"+{sum(posScoreList)}" for posScoreList in posScoreByTeam])
+
+        # Colonnes des joueurs
+        for j, playerj in enumerate(teams[t]):
+            fieldName = (await bot.fetch_user(playerj[0])).name
+            fieldValue = [playerj[2], str(sum(negScoreByTeam[j]))]
+            fieldValue += ["/" if guessTab[t][i][j] is None else guessTab[t][i][j] for i in range(len(teams[t]))]
+
+            tables[t].add_column(fieldName, fieldValue)
+
+        await playChannel.send(f"```{tables[t].get_string()}```")
 
 
 # When bot gets online
@@ -598,6 +644,7 @@ async def report(
 )
 async def test(ctx):
     print(gameData["endOfGameResult"])
+    await ctx.respond("RESPONSE OUI OUI MONSIEUR TEST UN DEUX UN DEUX ALLOOOO")
 
 
 @bot.slash_command(
