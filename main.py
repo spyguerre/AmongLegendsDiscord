@@ -97,17 +97,157 @@ def listRoles():
         )
     }
 
-    # Ordres Droid :
-    # Invade le blue/red ennemi dans la prochaine minute
-    # Roam/gank une lane dans la prochaine minute
-    # Ne tue pas de sbire pendant 2 min
-    # Assiste tous les kills de monstre épique/tourelles pendant les 5 prochaines minutes (même pour les ennemis)
-    # Meure dans les 30 prochaines secondes
-    # Back immédiatement
-    # Vend un item à 1000+ gold dans la prochaine minute
-    # Vole un camp à ton jungler / farme une wave d'un laner dans la prochaine minute
-
     return roles
+
+
+def listDroidOrders():
+    orders = {  # Orders can be given 5 minutes in or later
+        "blue": {  # order id
+            "description": "Invade le blue ennemi à %timestamp.",  # Description
+            "integerTimestamp": True,  # Whether or not timestamp for this order should be integer minutes
+            "preferedPositions": [  # Positions this order can be given to before 14 min
+                ["jgl", None],  # [position, teamId] / None for any
+                ["mid", None],
+                ["top", 1],
+                ["adc", 0],
+                ["sup", 0]
+            ],
+            "timeToExecute": 30,  # In seconds, time before timestamp to send the order
+            "minimumBreakTime": 0  # In seconds, how much minimum time to wait before giving next task
+        },
+        "red": {
+            "description": "Invade le red ennemi à %timestamp.",
+            "integerTimestamp": True,
+            "preferedPositions": [
+                ["jgl", None],
+                ["mid", None],
+                ["top", 0],
+                ["adc", 1],
+                ["sup", 1]
+            ],
+            "timeToExecute": 30,
+            "minimumBreakTime": 0
+        },
+        "gankTop": {
+            "description": "Gank la top lane à %timestamp.",
+            "integerTimestamp": True,
+            "preferedPositions": [
+                ["jgl", None],
+                ["mid", None]
+            ],
+            "timeToExecute": 30,
+            "minimumBreakTime": 0
+        },
+        "gankMid": {
+            "description": "Gank la mid lane à %timestamp.",
+            "integerTimestamp": True,
+            "preferedPositions": [
+                ["jgl", None],
+                ["top", None],
+                ["adc", None],
+                ["sup", None]
+            ],
+            "timeToExecute": 30,
+            "minimumBreakTime": 0
+        },
+        "gankBot": {
+            "description": "Gank la bot lane à %timestamp.",
+            "integerTimestamp": True,
+            "preferedPositions": [
+                ["jgl", None],
+                ["mid", None]
+            ],
+            "timeToExecute": 30,
+            "minimumBreakTime": 0
+        },
+        "noCS": {
+            "description": "Ne tue pas de sbire ni de camp de %timestamp à %endtimestamp.",
+            "integerTimestamp": True,
+            "preferedPositions": [
+                [None, None]
+            ],
+            "timeToExecute": 5,
+            "minimumBreakTime": 2*60
+        },
+        "assistEpicMonsters": {
+            "description": "Obtiens le takedown sur tous les monstres épiques tués (même ceux des ennemis) entre %timestamp et %endtimestamp.",
+            "integerTimestamp": False,
+            "preferedPositions": [
+            ],
+            "timeToExecute": 15,
+            "minimumBreakTime": 4*60
+        },
+        "assistTowers": {
+            "description": "Obtiens le takedown sur toutes les tourelles détruites entre %timestamp et %endtimestamp.",
+            "integerTimestamp": False,
+            "preferedPositions": [
+            ],
+            "timeToExecute": 15,
+            "minimumBreakTime": 4 * 60
+        },
+        "die": {
+            "description": "Meure avant %timestamp.",
+            "integerTimestamp": False,
+            "preferedPositions": [
+                [None, None]
+            ],
+            "timeToExecute": 20,
+            "minimumBreakTime": 1*60  # Pour être à peu près sûr que notre pauvre droïde ait respawn
+        },
+        "recall": {
+            "description": "Back immédiatement. (à %timestamp)",
+            "integerTimestamp": True,
+            "preferedPositions": [
+                [None, None]
+            ],
+            "timeToExecute": 15,
+            "minimumBreakTime": 0
+        },
+        "sell": {
+            "description": "Gagne au moins 1000 gold avant %timestamp. (Quitte à vendre des items)",
+            "integerTimestamp": True,
+            "preferedPositions": [
+                [None, None]
+            ],
+            "timeToExecute": 55,
+            "minimumBreakTime": 0
+        },
+        "stealCamp": {
+            "description": "Vole un camp à ton jungler avant %timestamp.",
+            "integerTimestamp": True,
+            "preferedPositions": [
+                ["top", None],
+                ["mid", None],
+                ["adc", None],
+                ["sup", None]
+            ],
+            "timeToExecute": 55,
+            "minimumBreakTime": 0
+        },
+        "stealWave": {
+            "description": "Vole une wave (6 sbires) à un laner avant %timestamp.",
+            "integerTimestamp": True,
+            "preferedPositions": [
+                ["jgl", None],
+                ["sup", None]
+            ],
+            "timeToExecute": 55,
+            "minimumBreakTime": 0
+        }
+    }
+
+    return orders
+
+
+def isValidEarlyOrder(order, position, teamId):
+    prefs = order["preferedPositions"]
+    valid = False
+    for pref in prefs:
+        if (pref[0] is None or pref[0] == position) and (pref[1] is None or pref[1] == teamId):
+            valid = True
+            break
+
+    return valid
 
 
 def getGameState(ctx):
@@ -534,15 +674,94 @@ async def start(ctx):
     await ctx.respond("Partie lancée... GLHF ! ⚔️")
 
     # Attend un peu pour laisser le temps au gambler
-    await asyncio.sleep(25)
+    # await asyncio.sleep(25)
+    pass
 
     # Avance l'état de la partie pour lock les gamble
     cursor.execute("UPDATE guildInfo SET inGame = ? WHERE guildId = ?", (3, ctx.guild.id))
     con.commit()
 
+    # Garde en mémoire la durée actuelle de la partie (en s)
+    gameTime = 25
+
+    # Retrouve tous les joueurs droïdes dans la partie
+    cursor.execute("SELECT discordId, teamId, subRole FROM game WHERE role = 'droïde'")
+    oldDroides = cursor.fetchall()
+
+    # Check la position de chaque droïde, sinon lui en assigne une random
+    droides = []
+    for droide in oldDroides:
+        if droide[2] is None:
+            droides.append([await bot.fetch_user(droide[0]), droide[1], random.choice(["top", "jgl", "mid", "adc", "sup"])])
+        else:
+            droides.append([await bot.fetch_user(droide[0]), droide[1], droide[2]])
+
+    # Décide des ordres à donner aux droïdes
+    for droide in droides:
+        ordres = listDroidOrders()
+
+        # Shuffle l'ordre dictionnaire
+        ordresL = list(ordres.items())  # Prend la liste des items pour pouvoir la shuffle après
+        random.shuffle(ordresL)
+
+        # Prend les 6 premiers ordres tels que les deux premiers soient valides pour le rôle/teamId en early
+        newOrdresL = []
+        while len(newOrdresL) < 2:  # Calcule les deux premiers
+            if isValidEarlyOrder(ordresL[0][1], droide[2], droide[1]):
+                newOrdresL.append(ordresL.pop(0))
+            else:
+                ordresL.append(ordresL.pop(0))
+        for _ in range(4):  # Rajoute les 4 suivants
+            newOrdresL.append(ordresL.pop(0))
+
+        # Attribue un timestamp aux ordres
+        finalOrders = []
+        orderTime = 3*60  # Pas d'ordre avant 3 minutes de jeu
+        for i in range(6):
+            if i:
+                orderTime += newOrdresL[i-1][1]["minimumBreakTime"]
+                orderTime += random.randrange(2*60, 6*60)
+            else:
+                orderTime += random.randrange(0, 3*60)
+
+            if newOrdresL[i][1]["integerTimestamp"]:
+                orderTime += (60 - orderTime % 60) % 60  # Rajouter le temps qu'il faut pour arriver sur la prochaine minute entière
+
+            finalOrders.append([newOrdresL[i][0], orderTime])
+
+        # Ajoute les ordres à la db
+        for ordreId, timestamp in finalOrders:
+            cursor.execute("INSERT INTO droïdes VALUES (?, ?, ?)", (droide[0].id, ordreId, timestamp))
+        con.commit()
+
+        droide.append(finalOrders)  # Elément k=3
+
     # Envoyer les ordres aux droïdes...
-    await asyncio.sleep(10)
-    await ctx.author.send("coucou")
+
+    # Ordres Droid :
+    # Invade le blue/red ennemi dans la prochaine minute
+    # Roam/gank une lane précise dans la prochaine minute
+    # Ne tue pas de sbire pendant 2 min
+    # Assiste tous les kills de monstre épique/tourelles pendant les 4 prochaines minutes (même pour les ennemis)
+    # Meure dans les 20 prochaines secondes
+    # Back immédiatement
+    # Vend un item à 1000+ gold dans la prochaine minute
+    # Vole un camp à ton jungler / farme une wave d'un laner dans la prochaine minute
+
+    gs = getGameState(ctx)
+    ordersDict = listDroidOrders()
+    print(droides[0])
+    while gs <= 3:
+        for droide in droides:
+            thisOrders = droide[3]
+            for orderId, timestamp in thisOrders:
+                if timestamp == gameTime + ordersDict[orderId]["timeToExecute"]:  # if it's time to give this order
+                    timestamp2 = timestamp + ordersDict[orderId]["minimumBreakTime"]
+                    await droide[0].send("Beep Boop.\n"+ordersDict[orderId]["description"].replace("%timestamp", f"{str(timestamp // 60).zfill(2)}:{str(timestamp % 60).zfill(2)}").replace("%endtimestamp", f"{str(timestamp2 // 60).zfill(2)}:{str(timestamp2 % 60).zfill(2)}"))
+                    print(f"--- {timestamp} - {timestamp2} - {ordersDict[orderId]["timeToExecute"]} - {ordersDict[orderId]["minimumBreakTime"]}\n\n\n")
+        await asyncio.sleep(.1)
+        gameTime += 1
+        gs = getGameState(ctx)
 
 
 @bot.slash_command(
@@ -657,5 +876,5 @@ async def gs(ctx, gamestate):
 
 
 # Run the bot
-token = open("token.txt", "r").read()  # Oh 42
+token = open("token.txt", "r").read()
 bot.run(token)
