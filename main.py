@@ -9,6 +9,7 @@ from lcuapi.exceptions import LCUClosedError, LCUDisconnectedError
 import random
 import asyncio
 from prettytable import PrettyTable
+from updateRoleScores import *
 
 
 # Creating the bot
@@ -271,23 +272,7 @@ def addScore(discordId, score):
     con.commit()
 
 
-async def processData():
-    # Croiser les données de la game avec les stats des joueurs
-    # discordId teamId role subRole guildId guess discordId leaguePuuid score
-    teams = []
-    for t in [0, 1]:
-        cursor.execute(
-            "SELECT * FROM game JOIN player ON game.discordId = player.discordId WHERE game.teamId = ? ORDER BY game.discordId",
-            (t,)
-        )
-        teamt = cursor.fetchall()
-        teams.append(teamt)
-
-    # Envoyer un premier feedback
-    cursor.execute("SELECT playChannelId FROM guildInfo WHERE guildId = ?", (teams[0][0][4],))
-    playChannel = await bot.fetch_channel(int(cursor.fetchall()[0][0]))
-    await playChannel.send("J'ai bien reçu les guess de tout le monde, je process la data et je reviens 🫡")
-
+async def processGuesses(teams, playChannel):
     # Calculer les tableaux des guess
     guessTab = []  # Contient les strings des guess
     for t in [0, 1]:
@@ -343,9 +328,10 @@ async def processData():
 
         # Calcul des prettytables
         # Première colonne / joueurs
-        tables[t].add_column(f"Team de {'gauche' if not t else 'droite'} :", ["\u200b"]*2 + [(await bot.fetch_user(player[0])).name for player in teams[t]])
+        tables[t].add_column(f"Team de {'gauche' if not t else 'droite'} :",
+                             ["\u200b"] * 2 + [(await bot.fetch_user(player[0])).name for player in teams[t]])
         # Deuxième colonne / points gagnés
-        tables[t].add_column("\u200b", ["\u200b"]*2 + [f"+{sum(posScoreList)}" for posScoreList in posScoreByTeam])
+        tables[t].add_column("\u200b", ["\u200b"] * 2 + [f"+{sum(posScoreList)}" for posScoreList in posScoreByTeam])
 
         # Colonnes des joueurs
         for j, playerj in enumerate(teams[t]):
@@ -356,6 +342,35 @@ async def processData():
             tables[t].add_column(fieldName, fieldValue)
 
         await playChannel.send(f"```{tables[t].get_string()}```")
+
+
+async def processRoles(teams, playChannel):
+    pass
+
+
+async def processData():
+    # Croiser les données de la game avec les stats des joueurs
+    # discordId teamId role subRole guildId guess discordId leaguePuuid score
+    teams = []
+    for t in [0, 1]:
+        cursor.execute(
+            "SELECT * FROM game JOIN player ON game.discordId = player.discordId WHERE game.teamId = ? ORDER BY game.discordId",
+            (t,)
+        )
+        teamt = cursor.fetchall()
+        teams.append(teamt)
+
+    # Envoyer un premier feedback
+    cursor.execute("SELECT playChannelId FROM guildInfo WHERE guildId = ?", (teams[0][0][4],))
+    playChannel = await bot.fetch_channel(int(cursor.fetchall()[0][0]))
+    await playChannel.send("J'ai bien reçu les guess de tout le monde, je process la data et je reviens 🫡")
+
+    # Process les points et les tableaux des guess
+    await processGuesses(teams, playChannel)
+
+    await processRoles(teams, playChannel)
+
+
 
 
 # When bot gets online
@@ -674,15 +689,14 @@ async def start(ctx):
     await ctx.respond("Partie lancée... GLHF ! ⚔️")
 
     # Attend un peu pour laisser le temps au gambler
-    # await asyncio.sleep(25)
-    pass
+    await asyncio.sleep(25)
 
     # Avance l'état de la partie pour lock les gamble
     cursor.execute("UPDATE guildInfo SET inGame = ? WHERE guildId = ?", (3, ctx.guild.id))
     con.commit()
 
     # Garde en mémoire la durée actuelle de la partie (en s)
-    gameTime = 25
+    gameTime = 30
 
     # Retrouve tous les joueurs droïdes dans la partie
     cursor.execute("SELECT discordId, teamId, subRole FROM game WHERE role = 'droïde'")
@@ -738,28 +752,16 @@ async def start(ctx):
 
     # Envoyer les ordres aux droïdes...
 
-    # Ordres Droid :
-    # Invade le blue/red ennemi dans la prochaine minute
-    # Roam/gank une lane précise dans la prochaine minute
-    # Ne tue pas de sbire pendant 2 min
-    # Assiste tous les kills de monstre épique/tourelles pendant les 4 prochaines minutes (même pour les ennemis)
-    # Meure dans les 20 prochaines secondes
-    # Back immédiatement
-    # Vend un item à 1000+ gold dans la prochaine minute
-    # Vole un camp à ton jungler / farme une wave d'un laner dans la prochaine minute
-
     gs = getGameState(ctx)
     ordersDict = listDroidOrders()
-    print(droides[0])
     while gs <= 3:
         for droide in droides:
             thisOrders = droide[3]
             for orderId, timestamp in thisOrders:
                 if timestamp == gameTime + ordersDict[orderId]["timeToExecute"]:  # if it's time to give this order
                     timestamp2 = timestamp + ordersDict[orderId]["minimumBreakTime"]
-                    await droide[0].send("Beep Boop.\n"+ordersDict[orderId]["description"].replace("%timestamp", f"{str(timestamp // 60).zfill(2)}:{str(timestamp % 60).zfill(2)}").replace("%endtimestamp", f"{str(timestamp2 // 60).zfill(2)}:{str(timestamp2 % 60).zfill(2)}"))
-                    print(f"--- {timestamp} - {timestamp2} - {ordersDict[orderId]["timeToExecute"]} - {ordersDict[orderId]["minimumBreakTime"]}\n\n\n")
-        await asyncio.sleep(.1)
+                    await droide[0].send("Beep Boop.\n**"+ordersDict[orderId]["description"].replace("%timestamp", f"{str(timestamp // 60).zfill(2)}:{str(timestamp % 60).zfill(2)}").replace("%endtimestamp", f"{str(timestamp2 // 60).zfill(2)}:{str(timestamp2 % 60).zfill(2)}")+"**")
+        await asyncio.sleep(1)
         gameTime += 1
         gs = getGameState(ctx)
 
