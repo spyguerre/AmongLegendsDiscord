@@ -371,8 +371,6 @@ async def processData():
     await processRoles(teams, playChannel)
 
 
-
-
 # When bot gets online
 @bot.event
 async def on_ready():
