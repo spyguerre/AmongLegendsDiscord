@@ -1,4 +1,3 @@
-from websockets.asyncio.client import connect
 
 
 def getParticipantId(gameData, puuid):
@@ -23,26 +22,6 @@ def listDeaths(gameData, participantId):
                 if event["victimId"] == participantId:
                     deaths.append(event.copy())
     return deaths
-
-
-def listKills(gameData, participantId):
-    kills = []
-    for frame in gameData[1]["frames"]:
-        for event in frame["events"]:
-            if event["type"] == "CHAMPION_KILL":
-                if event["killerId"] == participantId:
-                    kills.append(event.copy())
-    return kills
-
-
-def listAssists(gameData, participantId):
-    assists = []
-    for frame in gameData[1]["frames"]:
-        for event in frame["events"]:
-            if event["type"] == "CHAMPION_KILL":
-                if participantId in event["assistingParticipantIds"]:
-                    assists.append(event.copy())
-    return assists
 
 
 def listTakedowns(gameData, participantId):
@@ -480,5 +459,82 @@ def getScoreReglo(gameData, puuid, side):
         score += 2
     if deltaMax <= 7*60*1000:
         score += 2
+
+    return score
+
+
+def getScoreRadin(gameData, puuid):
+    score = 0
+
+    participantId = getParticipantId(gameData, puuid)
+
+    maxGold = 0
+    gameDuration = gameData[0]["gameDuration"] // 60 + 2  # En minutes ; + 2 pour la minute 0 (spawn) et la frame de fin de partie
+    for minute in range(gameDuration):
+        currentGold = getGold(gameData, participantId, minute*1000+5000)  # +5000 pour être sûr de tomber sur la bonne frame
+        maxGold = max(maxGold, currentGold)
+
+    if maxGold <= 1005:
+        score += 1
+    if maxGold <= 1205:
+        score += 1
+    if maxGold <= 1300:
+        score += 1
+    if maxGold > 1300:
+        score -= 3
+
+    return score
+
+
+def getScorePhilosophe(gameData, puuid):
+    score = 0
+
+    participantId = getParticipantId(gameData, puuid)
+    convertedTeamId = getConvertedTeamId(gameData, participantId)
+
+    wonGame = gameData[0]["teams"][convertedTeamId]["Win"] == "Win"
+    gameDuration = gameData[0]["gameDuration"] // 60  # En minutes
+
+    score -= 4
+    if wonGame:
+        score += 1
+    score += max(0, int((gameDuration - 15)/5))  # càd 0 point à 15 min, 1 point à 20 min, ..., 3 points à 30 min, 4 points à 35, etc.
+
+    return score
+
+
+def getScoreGambler(gameData, enemyPuuids, guesses):
+    score = 0
+
+    enemyPositions = []
+    for puuid in enemyPuuids:
+        participantId = getParticipantId(gameData, puuid)
+        timeline = gameData[0]["participants"][participantId-1]["timeline"]
+        lane = timeline["lane"]
+        role = timeline["role"]
+
+        position = None
+        if lane == "TOP":
+            position = 0
+        elif lane == "JUNGLE":
+            position = 1
+        elif lane == "MIDDLE":
+            position = 2
+        elif lane == "BOTTOM" and role == "CARRY":
+            position = 3
+        elif lane == "BOTTOM" and role == "SUPPORT":
+            position = 4
+
+        enemyPositions.append(position)
+
+    correctGuesses = 0
+    for i in range(len(guesses)):  # Itération sur les rôles : i = 0 -> top ... i = 4 -> sup
+        if enemyPositions[int(guesses[i])-1] == i:  # Pourquoi c'était si compliqué :/
+            correctGuesses += 1
+
+    if correctGuesses == 5:
+        score += 2
+    if correctGuesses <= 2:
+        score -= 3
 
     return score

@@ -346,8 +346,39 @@ async def processGuesses(teams, playChannel):
     return guessTab
 
 
-async def processRoles(teams, playChannel):
-    pass
+async def processRoles(teams, playChannel, guessTab):
+    for t in [0, 1]:
+        for i, playeri in enumerate(teams[t]):
+            scoreDelta = None
+            if playeri[2] == "imposteur":
+                scoreDelta = getScoreImposteur(gameData, playeri[7])
+            elif playeri[2] == "Roméo":
+                julietteIndex = playeri[3]
+                juliettePuuid = teams[1-t][julietteIndex][7]
+                scoreDelta = getScoreRomeo(gameData, playeri[7], juliettePuuid)
+            elif playeri[2] == "droïde":
+                cursor.execute("SELECT ordre, timestamp FROM droïdes WHERE discordId = ? ORDER BY timestamp", (playeri[0],))
+                ordres = cursor.fetchall()
+                scoreDelta = getScoreDroide(gameData, playeri[7], ordres)
+            elif playeri[2] == "serpentin":
+                scoreDelta = getScoreSerpentin(gameData, playeri[7])
+            elif playeri[2] == "escroc":
+                scoreDelta = getScoreEscroc(guessTab, t, i)
+            elif playeri[2] == "super-héros":
+                scoreDelta = getScoreSuperHeros(gameData, playeri[7])
+            elif playeri[2] == "analyste":
+                scoreDelta = getScoreAnalyste(gameData, playeri[7], playeri[3])
+            elif playeri[2] == "réglo":
+                scoreDelta = getScoreReglo(gameData, playeri[7], playeri[3])
+            elif playeri[2] == "radin":
+                scoreDelta = getScoreRadin(gameData, playeri[7])
+            elif playeri[2] == "philosophe":
+                scoreDelta = getScorePhilosophe(gameData, playeri[7])
+            elif playeri[2] == "gambler":
+                enemyPuuids = [enemy[7] for enemy in teams[1-t]]
+                scoreDelta = getScoreGambler(gameData, enemyPuuids, list(playeri[3]))
+
+            # Do something with scoreDelta here...
 
 
 async def processData():
@@ -368,9 +399,10 @@ async def processData():
     await playChannel.send("J'ai bien reçu les guess de tout le monde, je process la data et je reviens 🫡")
 
     # Process les points et les tableaux des guess
-    await processGuesses(teams, playChannel)
+    guessTab = await processGuesses(teams, playChannel)
 
-    await processRoles(teams, playChannel)
+    # Process les points des rôles et envoie le message de récap
+    await processRoles(teams, playChannel, guessTab)
 
 
 # When bot gets online
@@ -469,6 +501,7 @@ async def play(
     else:  # team = reset
         # Supprime toutes les infos de la partie et reset le game state
         cursor.execute("DELETE FROM game")
+        cursor.execute("DELETE FROM droïdes")
         cursor.execute("UPDATE guildInfo SET inGame = ? WHERE guildId = ?", (0, ctx.guild.id))
         con.commit()
         await ctx.respond("Partie reset.")
