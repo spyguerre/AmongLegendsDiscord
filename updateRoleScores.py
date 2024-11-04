@@ -1,3 +1,4 @@
+from websockets.asyncio.client import connect
 
 
 def getParticipantId(gameData, puuid):
@@ -22,6 +23,36 @@ def listDeaths(gameData, participantId):
                 if event["victimId"] == participantId:
                     deaths.append(event.copy())
     return deaths
+
+
+def listKills(gameData, participantId):
+    kills = []
+    for frame in gameData[1]["frames"]:
+        for event in frame["events"]:
+            if event["type"] == "CHAMPION_KILL":
+                if event["killerId"] == participantId:
+                    kills.append(event.copy())
+    return kills
+
+
+def listAssists(gameData, participantId):
+    assists = []
+    for frame in gameData[1]["frames"]:
+        for event in frame["events"]:
+            if event["type"] == "CHAMPION_KILL":
+                if participantId in event["assistingParticipantIds"]:
+                    assists.append(event.copy())
+    return assists
+
+
+def listTakedowns(gameData, participantId):
+    takedowns = []
+    for frame in gameData[1]["frames"]:
+        for event in frame["events"]:
+            if event["type"] == "CHAMPION_KILL":
+                if participantId in event["assistingParticipantIds"] or participantId == event["killerId"]:
+                    takedowns.append(event.copy())
+    return takedowns
 
 
 def listEpicMonsterKills(gameData):
@@ -71,6 +102,20 @@ def getGold(gameData, participantId, timestamp):  # Returns (minions, jglMinions
         if timestamp >= framets:
             participantFrame = frame["participantFrames"][str(participantId)]
             return participantFrame["currentGold"]
+
+
+def getKDAD(gameData, participantId):  # Returns Kills, Deaths, Assists, and total Damage to champions
+    participantStats = gameData[0]["participants"][participantId-1]["stats"]
+    return participantStats["kills"], participantStats["deaths"], participantStats["assists"], participantStats["totalDamageDealtToChampions"]
+
+
+def getTeamKDAD(gameData, convertedteamId):
+    participants = gameData[0]["participants"]
+    teamKDA = []
+    for participant in participants:
+        if participant["teamId"] == (convertedteamId+1)*100:
+            teamKDA.append(getKDAD(gameData, participant["participantId"]))
+    return teamKDA
 
 
 def getDeathTime(level, timestamp):
@@ -202,10 +247,13 @@ def getScoreDroide(gameData, puuid, ordres):  # Ordres = Liste des couples ("int
     score = 0
     participantId = getParticipantId(gameData, puuid)
     convertedTeamId = getConvertedTeamId(gameData, participantId)
+    gameDuration = gameData[0]["gameDuration"]*1000  # In miliseconds
 
     completedTasks = 0
     for ordre in ordres:
-        if ordre[0] == "blue":
+        if ordre[1] >= gameDuration:  # If the order wasn't given/given for later than the end of the game then count it as completed
+            completedTasks += 1
+        elif ordre[0] == "blue":
             coords = getCoordinates(gameData, participantId, ordre[1]+5000)  # + 5000 pour être sûrs de tomber sur la frame de la bonne minute
             if getBuff(coords[0], coords[1]) == f"blue{1-convertedTeamId}":
                 completedTasks += 1
@@ -286,6 +334,151 @@ def getScoreDroide(gameData, puuid, ordres):  # Ordres = Liste des couples ("int
     if completedTasks >= 4:
         score += 2
     if completedTasks >= 2:
+        score += 2
+
+    return score
+
+
+def getScoreSerpentin(gameData, puuid):
+    score = 0
+
+    participantId = getParticipantId(gameData, puuid)
+    convertedTeamId = getConvertedTeamId(gameData, participantId)
+
+    wonGame = gameData[0]["teams"][convertedTeamId]["Win"] == "Win"
+
+    teamKDAD = getTeamKDAD(gameData, convertedTeamId)
+    teamMostDeaths = 0
+    for participantKDAD in teamKDAD:
+        teamMostDeaths = max(teamMostDeaths, participantKDAD[1])
+    hasTeamMostDeaths = teamMostDeaths == getKDAD(gameData, participantId)[1]
+
+    teamMostDamage = 0
+    for participantKDAD in teamKDAD:
+        teamMostDamage = max(teamMostDamage, participantKDAD[3])
+    hasTeamMostDamage = teamMostDamage == getKDAD(gameData, participantId)[3]
+
+    score -= 3
+    if wonGame:
+        score += 2
+    if hasTeamMostDeaths:
+        score += 2
+    if hasTeamMostDamage:
+        score += 2
+
+    return score
+
+
+def getScoreEscroc(guessTab, teamId, playerIndex):
+    score = 0
+
+    impVotes = 0
+    for playeri in guessTab[teamId]:
+        if playeri[playerIndex] == "imposteur":
+            impVotes += 1
+
+    score -= 1
+    if impVotes >= 1:
+        score += 1
+    if impVotes >= 2:
+        score += 1
+    if impVotes >= 3:
+        score += 2
+
+    return score
+
+
+def getScoreSuperHeros(gameData, puuid):
+    score = 0
+
+    participantId = getParticipantId(gameData, puuid)
+    convertedTeamId = getConvertedTeamId(gameData, participantId)
+
+    teamKDAD = getTeamKDAD(gameData, convertedTeamId)
+    teamMostKills = 0
+    for participantKDAD in teamKDAD:
+        teamMostKills = max(teamMostKills, participantKDAD[0])
+    hasTeamMostKills = teamMostKills == getKDAD(gameData, participantId)[0]
+
+    teamMostAssists = 0
+    for participantKDAD in teamKDAD:
+        teamMostAssists = max(teamMostAssists, participantKDAD[2])
+    hasTeamMostAssists = teamMostAssists == getKDAD(gameData, participantId)[2]
+
+    score -= 2
+    if hasTeamMostAssists:
+        score += 2
+    if hasTeamMostKills:
+        score += 2
+    if hasTeamMostAssists and hasTeamMostKills:
+        score += 2
+
+    return score
+
+
+def getScoreAnalyste(gameData, puuid, order):  # order sous forme de string ici : par exemple "dak"
+    score = 0
+
+    participantId = getParticipantId(gameData, puuid)
+    kdad = getKDAD(gameData, participantId)
+
+    orderL = []  # Order sous forme de liste, par ex : [1, 2, 0]
+    for letter in order:
+        if letter == "k":
+            orderL.append(0)
+        elif letter == "d":
+            orderL.append(1)
+        else:
+            orderL.append(2)
+
+    marge = kdad[order[0]] + 2 < kdad[order[1]] + 1 < kdad[order[2]]
+    inegalitesLarges = kdad[orderL[0]] <= kdad[orderL[1]] <= kdad[orderL[2]]
+    uneInegaliteStricte = (kdad[orderL[0]] < kdad[orderL[1]]) or (kdad[orderL[1]] < kdad[orderL[2]])
+
+    score -= 3
+    if marge:
+        score += 2
+    if inegalitesLarges:
+        score += 2
+    if uneInegaliteStricte:
+        score += 2
+
+    return score
+
+
+def getScoreReglo(gameData, puuid, side):
+    score = 0
+
+    participantId = getParticipantId(gameData, puuid)
+
+    if not side:  # Mourir
+        deaths = listDeaths(gameData, participantId)
+        deathCount = len(deaths)
+        deltaMax = 0
+        firstBefore8 = False
+        if deathCount:  # Si pas de mort ou 1 max, le delta reste à 0. Si pas de morts, pas de récompense pour <= 8 min.
+            if deaths[0]["timestamp"] <= 8 * 60 * 1000:
+                firstBefore8 = True
+            for i in range(len(deaths) - 1):
+                deltaMax = max(deltaMax, deaths[i+1]["timestamp"] - deaths[i]["timestamp"])
+
+    else:  # Obtenir un takedown
+        takedowns = listTakedowns(gameData, participantId)
+        takedownCount = len(takedowns)
+        deltaMax = 0
+        firstBefore8 = False
+        if takedownCount:
+            if takedowns[0]["timestamp"] <= 8 * 60 * 1000:
+                firstBefore8 = True
+            for i in range(len(takedowns) - 1):
+                deltaMax = max(deltaMax, takedowns[i+1]["timestamp"] - takedowns[i]["timestamp"])
+
+    score -= 3
+    if firstBefore8:
+        score += 2
+    if deltaMax <= 5*60*1000:
+        score += 2
+    if deltaMax <= 7*60*1000:
         score += 2
 
     return score

@@ -274,7 +274,7 @@ def addScore(discordId, score):
 
 async def processGuesses(teams, playChannel):
     # Calculer les tableaux des guess
-    guessTab = []  # Contient les strings des guess
+    guessTab = []  # Contient les guess
     for t in [0, 1]:
         guessTabByTeam = []
         for i, playeri in enumerate(teams[t]):
@@ -342,6 +342,8 @@ async def processGuesses(teams, playChannel):
             tables[t].add_column(fieldName, fieldValue)
 
         await playChannel.send(f"```{tables[t].get_string()}```")
+
+    return guessTab
 
 
 async def processRoles(teams, playChannel):
