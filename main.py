@@ -347,6 +347,7 @@ async def processGuesses(teams, playChannel):
 
 
 async def processRoles(teams, playChannel, guessTab):
+    scoresLists = [[], []]
     for t in [0, 1]:
         for i, playeri in enumerate(teams[t]):
             scoreDelta = None
@@ -354,8 +355,8 @@ async def processRoles(teams, playChannel, guessTab):
                 scoreDelta = getScoreImposteur(gameData, playeri[7])
             elif playeri[2] == "Roméo":
                 julietteIndex = playeri[3]
-                juliettePuuid = teams[1-t][julietteIndex][7]
-                scoreDelta = getScoreRomeo(gameData, playeri[7], juliettePuuid)
+                julietteNameTag = teams[1-t][julietteIndex][7]
+                scoreDelta = getScoreRomeo(gameData, playeri[7], julietteNameTag)
             elif playeri[2] == "droïde":
                 cursor.execute("SELECT ordre, timestamp FROM droïdes WHERE discordId = ? ORDER BY timestamp", (playeri[0],))
                 ordres = cursor.fetchall()
@@ -375,15 +376,30 @@ async def processRoles(teams, playChannel, guessTab):
             elif playeri[2] == "philosophe":
                 scoreDelta = getScorePhilosophe(gameData, playeri[7])
             elif playeri[2] == "gambler":
-                enemyPuuids = [enemy[7] for enemy in teams[1-t]]
-                scoreDelta = getScoreGambler(gameData, enemyPuuids, list(playeri[3]))
+                enemyNameTags = [enemy[7] for enemy in teams[1-t]]
+                scoreDelta = getScoreGambler(gameData, enemyNameTags, list(playeri[3]))
 
-            # Do something with scoreDelta here...
+            addScore(playeri[0], scoreDelta)
+            scoresLists[t].append(scoreDelta)
+
+    table = PrettyTable()
+    #  Team de gauche
+    table.add_column("Points team de gauche", [f"<@!{playeri[0]}>" for playeri in teams[0]])
+    table.add_column("\u200b", [playeri[2] for playeri in teams[0]])
+    table.add_column("\u200b", [f"{'+' if score > 0 else ''}{score}" for score in scoresLists[0]])
+    # Colonne milieu
+    table.add_column("\u200b", ["/" if i % 2 else "\\" for i in range(len(teams[0]))])
+    # Team de droite
+    table.add_column("\u200b", [f"{'+' if score > 0 else ''}{score}" for score in scoresLists[1]])
+    table.add_column("\u200b", [playeri[2] for playeri in teams[1]])
+    table.add_column("Points team de droite", [f"<@!{playeri[0]}>" for playeri in teams[1]])
+
+    await playChannel.send(f"```{table.get_string()}```")
 
 
 async def processData():
     # Croiser les données de la game avec les stats des joueurs
-    # discordId teamId role subRole guildId guess discordId leaguePuuid score
+    # discordId teamId role subRole guildId guess discordId nameTag score
     teams = []
     for t in [0, 1]:
         cursor.execute(
@@ -445,27 +461,25 @@ async def set_play_channel(ctx):
     name="profile",
     description="Pour link ton profil LoL avec discord."
 )
-async def profile(ctx, name: discord.Option(str, description="Nom_InGame#Tag")):
-    if "#" not in name:
+async def profile(ctx, nameTag: discord.Option(str, description="Nom_InGame#Tag")):
+    if "#" not in nameTag:
         await ctx.respond("Il me faut ton # aussi :p")
         return
 
-    # Récupérer le puuid du joueur
-    name, tag = name.split("#")
+    # Vérifier que le joueur existe
+    name, tag = nameTag.split("#")
     ans = requests.get(f"https://europe.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{name}/{tag}?api_key={key}")
     if ans.status_code != 200:  # Si le joueur n'existe pas
         await ctx.respond("Pas trouvé ton profil :/ Vérifie ton nom#tag")
         return
-    data = ansToDict(ans)
-    puuid = data["puuid"][0]
 
     # Insérer ou update le joueur en fonction de s'il est déjà dans la table
     cursor.execute(f"SELECT * FROM player WHERE discordId = ?", (ctx.author.id,))
     res = cursor.fetchall()
     if not len(res):  # Le joueur ne s'est pas encore inscrit
-        cursor.execute(f"INSERT INTO player VALUES (?, ?, ?)", (ctx.author.id, puuid, 0))
+        cursor.execute(f"INSERT INTO player VALUES (?, ?, ?)", (ctx.author.id, nameTag, 0))
     else:  # Le joueur était déjà inscrit
-        cursor.execute(f"UPDATE player SET leaguePuuid = ? WHERE discordId = ?", (puuid, ctx.author.id))
+        cursor.execute(f"UPDATE player SET nameTag = ? WHERE discordId = ?", (nameTag, ctx.author.id))
     con.commit()
 
     await ctx.respond("Tu es maintenant inscrit :)")
@@ -816,7 +830,9 @@ async def end(
     global gameData
     if data is None:
         try:
-            gameData = lcu.get("/lol-match-history/v1/games/7164199652")
+            game = lcu.get("/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=0")["games"][0]
+            gameTimeline = lcu.get(f"/lol-match-history/v1/game-timelines/{game['gameId']}")
+            gameData = [game, gameTimeline]
         except (LCUClosedError, LCUDisconnectedError):
             await ctx.channel.send(f"{ctx.author.mention} Spy n'est visiblement pas connecté, il me faut les données de la partie dans un .txt en argument :/")
     else:

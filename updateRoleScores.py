@@ -1,9 +1,10 @@
 
 
-def getParticipantId(gameData, puuid):
+def getParticipantId(gameData, nameTag):
     participants = gameData[0]["participantIdentities"]
+    name, tag = nameTag.split("#")
     for participant in participants:
-        if participant["puuid"] == puuid:
+        if participant["gameName"] == name and participant["tagLine"] == tag:
             return participant["participantId"]
 
 
@@ -150,10 +151,10 @@ def getFountain(x, y):
         return "none"
 
 
-def getScoreImposteur(gameData, puuid):
+def getScoreImposteur(gameData, nameTag):
     score = 0
 
-    participantId = getParticipantId(gameData, puuid)
+    participantId = getParticipantId(gameData, nameTag)
     convertedTeamId = getConvertedTeamId(gameData, participantId)
     lostGame = gameData[0]["teams"][convertedTeamId]["Win"] == "Fail"
 
@@ -165,13 +166,13 @@ def getScoreImposteur(gameData, puuid):
     return score
 
 
-def getScoreRomeo(gameData, puuid, juliettePuuid):
+def getScoreRomeo(gameData, nameTag, julietteNameTag):
     score = 0
 
-    romeoId = getParticipantId(gameData, puuid)
+    romeoId = getParticipantId(gameData, nameTag)
     romeoDeaths = listDeaths(gameData, romeoId)
 
-    julietteId = getParticipantId(gameData, juliettePuuid)
+    julietteId = getParticipantId(gameData, julietteNameTag)
     julietteDeaths = listDeaths(gameData, julietteId)
 
     deathsUnder25 = 0
@@ -222,9 +223,9 @@ def getScoreRomeo(gameData, puuid, juliettePuuid):
     return score
 
 
-def getScoreDroide(gameData, puuid, ordres):  # Ordres = Liste des couples ("intitulé", timestamp)
+def getScoreDroide(gameData, nameTag, ordres):  # Ordres = Liste des couples ("intitulé", timestamp)
     score = 0
-    participantId = getParticipantId(gameData, puuid)
+    participantId = getParticipantId(gameData, nameTag)
     convertedTeamId = getConvertedTeamId(gameData, participantId)
     gameDuration = gameData[0]["gameDuration"]*1000  # In miliseconds
 
@@ -318,10 +319,10 @@ def getScoreDroide(gameData, puuid, ordres):  # Ordres = Liste des couples ("int
     return score
 
 
-def getScoreSerpentin(gameData, puuid):
+def getScoreSerpentin(gameData, nameTag):
     score = 0
 
-    participantId = getParticipantId(gameData, puuid)
+    participantId = getParticipantId(gameData, nameTag)
     convertedTeamId = getConvertedTeamId(gameData, participantId)
 
     wonGame = gameData[0]["teams"][convertedTeamId]["Win"] == "Win"
@@ -367,10 +368,10 @@ def getScoreEscroc(guessTab, teamId, playerIndex):
     return score
 
 
-def getScoreSuperHeros(gameData, puuid):
+def getScoreSuperHeros(gameData, nameTag):
     score = 0
 
-    participantId = getParticipantId(gameData, puuid)
+    participantId = getParticipantId(gameData, nameTag)
     convertedTeamId = getConvertedTeamId(gameData, participantId)
 
     teamKDAD = getTeamKDAD(gameData, convertedTeamId)
@@ -395,10 +396,10 @@ def getScoreSuperHeros(gameData, puuid):
     return score
 
 
-def getScoreAnalyste(gameData, puuid, order):  # order sous forme de string ici : par exemple "dak"
+def getScoreAnalyste(gameData, nameTag, order):  # order sous forme de string ici : par exemple "dak"
     score = 0
 
-    participantId = getParticipantId(gameData, puuid)
+    participantId = getParticipantId(gameData, nameTag)
     kdad = getKDAD(gameData, participantId)
 
     orderL = []  # Order sous forme de liste, par ex : [1, 2, 0]
@@ -425,10 +426,10 @@ def getScoreAnalyste(gameData, puuid, order):  # order sous forme de string ici 
     return score
 
 
-def getScoreReglo(gameData, puuid, side):
+def getScoreReglo(gameData, nameTag, side):
     score = 0
 
-    participantId = getParticipantId(gameData, puuid)
+    participantId = getParticipantId(gameData, nameTag)
 
     if not side:  # Mourir
         deaths = listDeaths(gameData, participantId)
@@ -463,10 +464,10 @@ def getScoreReglo(gameData, puuid, side):
     return score
 
 
-def getScoreRadin(gameData, puuid):
+def getScoreRadin(gameData, nameTag):
     score = 0
 
-    participantId = getParticipantId(gameData, puuid)
+    participantId = getParticipantId(gameData, nameTag)
 
     maxGold = 0
     gameDuration = gameData[0]["gameDuration"] // 60 + 2  # En minutes ; + 2 pour la minute 0 (spawn) et la frame de fin de partie
@@ -486,10 +487,10 @@ def getScoreRadin(gameData, puuid):
     return score
 
 
-def getScorePhilosophe(gameData, puuid):
+def getScorePhilosophe(gameData, nameTag):
     score = 0
 
-    participantId = getParticipantId(gameData, puuid)
+    participantId = getParticipantId(gameData, nameTag)
     convertedTeamId = getConvertedTeamId(gameData, participantId)
 
     wonGame = gameData[0]["teams"][convertedTeamId]["Win"] == "Win"
@@ -503,12 +504,12 @@ def getScorePhilosophe(gameData, puuid):
     return score
 
 
-def getScoreGambler(gameData, enemyPuuids, guesses):
+def getScoreGambler(gameData, enemyNameTags, guesses):
     score = 0
 
     enemyPositions = []
-    for puuid in enemyPuuids:
-        participantId = getParticipantId(gameData, puuid)
+    for nameTag in enemyNameTags:
+        participantId = getParticipantId(gameData, nameTag)
         timeline = gameData[0]["participants"][participantId-1]["timeline"]
         lane = timeline["lane"]
         role = timeline["role"]
