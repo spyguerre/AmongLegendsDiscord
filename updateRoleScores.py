@@ -4,7 +4,7 @@ def getParticipantId(gameData, nameTag):
     participants = gameData[0]["participantIdentities"]
     name, tag = nameTag.split("#")
     for participant in participants:
-        if participant["gameName"] == name and participant["tagLine"] == tag:
+        if participant["player"]["gameName"] == name and participant["player"]["tagLine"] == tag:
             return participant["participantId"]
 
 
@@ -156,7 +156,7 @@ def getScoreImposteur(gameData, nameTag):
 
     participantId = getParticipantId(gameData, nameTag)
     convertedTeamId = getConvertedTeamId(gameData, participantId)
-    lostGame = gameData[0]["teams"][convertedTeamId]["Win"] == "Fail"
+    lostGame = gameData[0]["teams"][convertedTeamId]["win"] == "Fail"
 
     if lostGame:
         score += 4
@@ -211,14 +211,17 @@ def getScoreRomeo(gameData, nameTag, julietteNameTag):
             deathsOver40 += delta >= 40*1000
 
     jDeathCount = len(julietteDeaths)
-    if deathsUnder25 == jDeathCount:
-        score += 2
-    if deathsUnder25/jDeathCount >= 0.8:
-        score += 1
-    if deathsUnder30/jDeathCount >= 0.5:
-        score += 1
-    if deathsOver40/jDeathCount >= 0.5:
-        score -= 4
+    if jDeathCount:  # Eviter les division par 0...
+        if deathsUnder25 == jDeathCount:
+            score += 2
+        if deathsUnder25/jDeathCount >= 0.8:
+            score += 1
+        if deathsUnder30/jDeathCount >= 0.5:
+            score += 1
+        if deathsOver40/jDeathCount > 0.5:
+            score -= 4
+    else:  # Dans ce cas Juliette n'est jamais morte, donc techniquement Roméo a tous ses points.
+        score += 4
 
     return score
 
@@ -231,38 +234,38 @@ def getScoreDroide(gameData, nameTag, ordres):  # Ordres = Liste des couples ("i
 
     completedTasks = 0
     for ordre in ordres:
-        if ordre[1] >= gameDuration:  # If the order wasn't given/given for later than the end of the game then count it as completed
+        if ordre[1]*1000 >= gameDuration:  # If the order wasn't given/given for later than the end of the game then count it as completed
             completedTasks += 1
         elif ordre[0] == "blue":
-            coords = getCoordinates(gameData, participantId, ordre[1]+5000)  # + 5000 pour être sûrs de tomber sur la frame de la bonne minute
+            coords = getCoordinates(gameData, participantId, ordre[1]*1000+5000)  # + 5000 pour être sûrs de tomber sur la frame de la bonne minute
             if getBuff(coords[0], coords[1]) == f"blue{1-convertedTeamId}":
                 completedTasks += 1
         elif ordre[0] == "red":
-            coords = getCoordinates(gameData, participantId, ordre[1]+5000)
+            coords = getCoordinates(gameData, participantId, ordre[1]*1000+5000)
             if getBuff(coords[0], coords[1]) == f"red{1-convertedTeamId}":
                 completedTasks += 1
         elif ordre[0] == "gankTop":
-            coords = getCoordinates(gameData, participantId, ordre[1]+5000)
+            coords = getCoordinates(gameData, participantId, ordre[1]*1000+5000)
             if getLane(coords[0], coords[1]) == "top":
                 completedTasks += 1
         elif ordre[0] == "gankMid":
-            coords = getCoordinates(gameData, participantId, ordre[1]+5000)
+            coords = getCoordinates(gameData, participantId, ordre[1]*1000+5000)
             if getLane(coords[0], coords[1]) == "mid":
                 completedTasks += 1
         elif ordre[0] == "gankBot":
-            coords = getCoordinates(gameData, participantId, ordre[1]+5000)
+            coords = getCoordinates(gameData, participantId, ordre[1]*1000+5000)
             if getLane(coords[0], coords[1]) == "bot":
                 completedTasks += 1
         elif ordre[0] == "noCS":
-            cs1 = getCS(gameData, participantId, ordre[1]+5000)[0]
-            cs2 = getCS(gameData, participantId, ordre[1] + 2*60*1000 + 5000)[0]
+            cs1 = getCS(gameData, participantId, ordre[1]*1000+5000)[0]
+            cs2 = getCS(gameData, participantId, ordre[1]*1000 + 2*60*1000 + 5000)[0]
             csGaigned = cs2 - cs1
             if csGaigned > 0:
                 completedTasks += 1
         elif ordre[0] == "assistEpicMonsters":
             allTakedowns = True
             for kill in listEpicMonsterKills(gameData):
-                if ordre[1] <= kill["timestamp"] <= ordre[1]+4*60*1000:
+                if ordre[1]*1000 <= kill["timestamp"] <= ordre[1]*1000+4*60*1000:
                     if participantId not in kill["assistingParticipantIds"] and kill["killerId"] != participantId:
                         allTakedowns = False
                         break
@@ -271,7 +274,7 @@ def getScoreDroide(gameData, nameTag, ordres):  # Ordres = Liste des couples ("i
         elif ordre[0] == "assistTowers":
             allTakedowns = True
             for kill in listTowerKills(gameData):
-                if ordre[1] <= kill["timestamp"] <= ordre[1] + 4 * 60 * 1000:
+                if ordre[1]*1000 <= kill["timestamp"] <= ordre[1]*1000 + 4 * 60 * 1000:
                     if participantId not in kill["assistingParticipantIds"] and kill["killerId"] != participantId:
                         allTakedowns = False
                         break
@@ -281,29 +284,29 @@ def getScoreDroide(gameData, nameTag, ordres):  # Ordres = Liste des couples ("i
             deaths = listDeaths(gameData, participantId)
             died = False
             for death in deaths:
-                if ordre[1] <= death["timestamp"] <= ordre[1] + 20 * 1000:
+                if ordre[1]*1000 <= death["timestamp"] <= ordre[1]*1000 + 20 * 1000:
                     died = True
                     break
             if died:
                 completedTasks += 1
         elif ordre[0] == "recall":
-            coords = getCoordinates(gameData, participantId, ordre[1]+5000)
+            coords = getCoordinates(gameData, participantId, ordre[1]*1000+5000)
             if getFountain(coords[0], coords[1]) == f"fountain{convertedTeamId}":
                 completedTasks += 1
         elif ordre[0] == "sell":
-            gold1 = getGold(gameData, participantId, ordre[1] - 1*60*1000 + 5000)
-            gold2 = getGold(gameData, participantId, ordre[1] + 5000)
+            gold1 = getGold(gameData, participantId, ordre[1]*1000 - 1*60*1000 + 5000)
+            gold2 = getGold(gameData, participantId, ordre[1]*1000 + 5000)
             if gold2 - gold1 >= 1000:
                 completedTasks += 1
         elif ordre[0] == "stealCamp":
-            cs1 = getCS(gameData, participantId, ordre[1] - 1*60*1000 + 5000)[1]
-            cs2 = getCS(gameData, participantId, ordre[1] + 5000)[1]
+            cs1 = getCS(gameData, participantId, ordre[1]*1000 - 1*60*1000 + 5000)[1]
+            cs2 = getCS(gameData, participantId, ordre[1]*1000 + 5000)[1]
             csGaigned = cs2 - cs1
             if csGaigned >= 4:
                 completedTasks += 1
         elif ordre[0] == "stealWave":
-            cs1 = getCS(gameData, participantId, ordre[1] - 1*60*1000 + 5000)[0]
-            cs2 = getCS(gameData, participantId, ordre[1] + 5000)[0]
+            cs1 = getCS(gameData, participantId, ordre[1]*1000 - 1*60*1000 + 5000)[0]
+            cs2 = getCS(gameData, participantId, ordre[1]*1000 + 5000)[0]
             csGaigned = cs2 - cs1
             if csGaigned >= 6:
                 completedTasks += 1
@@ -325,7 +328,7 @@ def getScoreSerpentin(gameData, nameTag):
     participantId = getParticipantId(gameData, nameTag)
     convertedTeamId = getConvertedTeamId(gameData, participantId)
 
-    wonGame = gameData[0]["teams"][convertedTeamId]["Win"] == "Win"
+    wonGame = gameData[0]["teams"][convertedTeamId]["win"] == "Win"
 
     teamKDAD = getTeamKDAD(gameData, convertedTeamId)
     teamMostDeaths = 0
@@ -357,7 +360,7 @@ def getScoreEscroc(guessTab, teamId, playerIndex):
         if playeri[playerIndex] == "imposteur":
             impVotes += 1
 
-    score -= 1
+    score -= 2
     if impVotes >= 1:
         score += 1
     if impVotes >= 2:
@@ -374,6 +377,8 @@ def getScoreSuperHeros(gameData, nameTag):
     participantId = getParticipantId(gameData, nameTag)
     convertedTeamId = getConvertedTeamId(gameData, participantId)
 
+    wonGame = gameData[0]["teams"][convertedTeamId]["win"] == "Win"
+
     teamKDAD = getTeamKDAD(gameData, convertedTeamId)
     teamMostKills = 0
     for participantKDAD in teamKDAD:
@@ -386,8 +391,8 @@ def getScoreSuperHeros(gameData, nameTag):
     hasTeamMostAssists = teamMostAssists == getKDAD(gameData, participantId)[2]
 
     score -= 2
-    if hasTeamMostAssists:
-        score += 2
+    if wonGame:
+        score += 1
     if hasTeamMostKills:
         score += 2
     if hasTeamMostAssists and hasTeamMostKills:
@@ -411,7 +416,7 @@ def getScoreAnalyste(gameData, nameTag, order):  # order sous forme de string ic
         else:
             orderL.append(2)
 
-    marge = kdad[order[0]] + 2 < kdad[order[1]] + 1 < kdad[order[2]]
+    marge = kdad[orderL[0]] + 2 < kdad[orderL[1]] + 1 < kdad[orderL[2]]
     inegalitesLarges = kdad[orderL[0]] <= kdad[orderL[1]] <= kdad[orderL[2]]
     uneInegaliteStricte = (kdad[orderL[0]] < kdad[orderL[1]]) or (kdad[orderL[1]] < kdad[orderL[2]])
 
@@ -456,9 +461,9 @@ def getScoreReglo(gameData, nameTag, side):
     score -= 3
     if firstBefore8:
         score += 2
-    if deltaMax <= 5*60*1000:
+    if (deltaMax <= 5*60*1000 and not side) or (deltaMax <= 4*60*1000 and side):
         score += 2
-    if deltaMax <= 7*60*1000:
+    if (deltaMax <= 7*60*1000 and not side) or (deltaMax <= 6*60*1000 and side):
         score += 2
 
     return score
@@ -470,9 +475,8 @@ def getScoreRadin(gameData, nameTag):
     participantId = getParticipantId(gameData, nameTag)
 
     maxGold = 0
-    gameDuration = gameData[0]["gameDuration"] // 60 + 2  # En minutes ; + 2 pour la minute 0 (spawn) et la frame de fin de partie
-    for minute in range(gameDuration):
-        currentGold = getGold(gameData, participantId, minute*1000+5000)  # +5000 pour être sûr de tomber sur la bonne frame
+    for frame in gameData[1]["frames"]:
+        currentGold = frame["participantFrames"][str(participantId)]["currentGold"]
         maxGold = max(maxGold, currentGold)
 
     if maxGold <= 1005:
@@ -481,7 +485,7 @@ def getScoreRadin(gameData, nameTag):
         score += 1
     if maxGold <= 1300:
         score += 1
-    if maxGold > 1300:
+    if maxGold > 1400:
         score -= 3
 
     return score
@@ -493,7 +497,7 @@ def getScorePhilosophe(gameData, nameTag):
     participantId = getParticipantId(gameData, nameTag)
     convertedTeamId = getConvertedTeamId(gameData, participantId)
 
-    wonGame = gameData[0]["teams"][convertedTeamId]["Win"] == "Win"
+    wonGame = gameData[0]["teams"][convertedTeamId]["win"] == "Win"
     gameDuration = gameData[0]["gameDuration"] // 60  # En minutes
 
     score -= 4

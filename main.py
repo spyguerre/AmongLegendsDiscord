@@ -4,7 +4,7 @@ import datetime
 import sqlite3
 import requests
 from pandas import json_normalize
-from lcuapi import LCU
+from lcuapi import LCU  # From https://github.com/jjmaldonis/lcu-api/tree/master !
 from lcuapi.exceptions import LCUClosedError, LCUDisconnectedError
 import random
 import asyncio
@@ -30,7 +30,6 @@ lcu.wait_for_login()
 # Global variables
 key = open("riotKey.txt").read()  # Define Riot API Key
 gameData = {}  # save game data here
-
 
 # Converts an api response to a readable dict
 def ansToDict(ans):
@@ -384,15 +383,15 @@ async def processRoles(teams, playChannel, guessTab):
 
     table = PrettyTable()
     #  Team de gauche
-    table.add_column("Points team de gauche", [f"<@!{playeri[0]}>" for playeri in teams[0]])
-    table.add_column("\u200b", [playeri[2] for playeri in teams[0]])
-    table.add_column("\u200b", [f"{'+' if score > 0 else ''}{score}" for score in scoresLists[0]])
+    table.add_column("Team de gauche", [(await bot.fetch_user(playeri[0])).name for playeri in teams[0]])
+    table.add_column("Rôle", [playeri[2] for playeri in teams[0]])
+    table.add_column("Points de rôle", [f"{'+' if score > 0 else ''}{score}" for score in scoresLists[0]])
     # Colonne milieu
     table.add_column("\u200b", ["/" if i % 2 else "\\" for i in range(len(teams[0]))])
     # Team de droite
-    table.add_column("\u200b", [f"{'+' if score > 0 else ''}{score}" for score in scoresLists[1]])
-    table.add_column("\u200b", [playeri[2] for playeri in teams[1]])
-    table.add_column("Points team de droite", [f"<@!{playeri[0]}>" for playeri in teams[1]])
+    table.add_column("Points de rôle", [f"{'+' if score > 0 else ''}{score}" for score in scoresLists[1]])
+    table.add_column("Rôle", [playeri[2] for playeri in teams[1]])
+    table.add_column("Team de droite", [(await bot.fetch_user(playeri[0])).name for playeri in teams[1]])
 
     await playChannel.send(f"```{table.get_string()}```")
 
@@ -461,13 +460,13 @@ async def set_play_channel(ctx):
     name="profile",
     description="Pour link ton profil LoL avec discord."
 )
-async def profile(ctx, nameTag: discord.Option(str, description="Nom_InGame#Tag")):
-    if "#" not in nameTag:
+async def profile(ctx, nametag: discord.Option(str, description="Nom_InGame#Tag")):
+    if "#" not in nametag:
         await ctx.respond("Il me faut ton # aussi :p")
         return
 
     # Vérifier que le joueur existe
-    name, tag = nameTag.split("#")
+    name, tag = nametag.split("#")
     ans = requests.get(f"https://europe.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{name}/{tag}?api_key={key}")
     if ans.status_code != 200:  # Si le joueur n'existe pas
         await ctx.respond("Pas trouvé ton profil :/ Vérifie ton nom#tag")
@@ -477,9 +476,9 @@ async def profile(ctx, nameTag: discord.Option(str, description="Nom_InGame#Tag"
     cursor.execute(f"SELECT * FROM player WHERE discordId = ?", (ctx.author.id,))
     res = cursor.fetchall()
     if not len(res):  # Le joueur ne s'est pas encore inscrit
-        cursor.execute(f"INSERT INTO player VALUES (?, ?, ?)", (ctx.author.id, nameTag, 0))
+        cursor.execute(f"INSERT INTO player VALUES (?, ?, ?)", (ctx.author.id, nametag, 0))
     else:  # Le joueur était déjà inscrit
-        cursor.execute(f"UPDATE player SET nameTag = ? WHERE discordId = ?", (nameTag, ctx.author.id))
+        cursor.execute(f"UPDATE player SET nameTag = ? WHERE discordId = ?", (nametag, ctx.author.id))
     con.commit()
 
     await ctx.respond("Tu es maintenant inscrit :)")
@@ -830,9 +829,10 @@ async def end(
     global gameData
     if data is None:
         try:
-            game = lcu.get("/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=0")["games"][0]
+            game = lcu.get("/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=0")["games"]["games"][0]
             gameTimeline = lcu.get(f"/lol-match-history/v1/game-timelines/{game['gameId']}")
             gameData = [game, gameTimeline]
+            print(gameData)
         except (LCUClosedError, LCUDisconnectedError):
             await ctx.channel.send(f"{ctx.author.mention} Spy n'est visiblement pas connecté, il me faut les données de la partie dans un .txt en argument :/")
     else:
