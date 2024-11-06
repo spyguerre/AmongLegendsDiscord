@@ -1,3 +1,4 @@
 token.txt
 riotKey.txt
 lcuapi/__pycache__/*
+__pycache__/*
