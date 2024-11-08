@@ -13,7 +13,10 @@ from updateRoleScores import *
 
 
 # Creating the bot
-bot = commands.Bot()
+intents = discord.Intents.default()
+# noinspection PyUnresolvedReferences
+intents.members = True
+bot = commands.Bot(intents=intents)
 
 
 # Connecting to db
@@ -30,6 +33,7 @@ lcu.wait_for_login()
 # Global variables
 key = open("riotKey.txt").read()  # Define Riot API Key
 gameData = {}  # save game data here
+
 
 # Converts an api response to a readable dict
 def ansToDict(ans):
@@ -387,7 +391,7 @@ async def processRoles(teams, playChannel, guessTab):
     table.add_column("Rôle", [playeri[2] for playeri in teams[0]])
     table.add_column("Points de rôle", [f"{'+' if score > 0 else ''}{score}" for score in scoresLists[0]])
     # Colonne milieu
-    table.add_column("\u200b", ["/" if i % 2 else "\\" for i in range(len(teams[0]))])
+    table.add_column("/", ["/" if i % 2 else "\\" for i in range(len(teams[0]))])
     # Team de droite
     table.add_column("Points de rôle", [f"{'+' if score > 0 else ''}{score}" for score in scoresLists[1]])
     table.add_column("Rôle", [playeri[2] for playeri in teams[1]])
@@ -565,7 +569,7 @@ async def game(ctx):
 )
 async def roles(ctx):
     # Vérifie que les rôles n'ont pas déjà été donné
-    if getGameState(ctx) >= 1:
+    if getGameState(ctx) != 0:
         await ctx.respond("Je partage l'engouement, mais les rôles ont déjà été donnés pour cette partie !")
         return
 
@@ -576,6 +580,8 @@ async def roles(ctx):
         cursor.execute("UPDATE guildInfo SET playChannelId = ? WHERE guildId = ?", (ctx.channel.id, ctx.guild.id))
         con.commit()
         await ctx.channel.send("J'ai enregistré le channel actuel en tant que channel de jeu. Vous pouvez le changer avec `/set_play_channel`")
+
+    await ctx.respond("Je vous envoie vos rôles...")
 
     # Recense les joueurs des deux équipes
     cursor.execute("SELECT * FROM game WHERE teamId = ? ORDER BY discordId", (0,))
@@ -635,7 +641,7 @@ async def roles(ctx):
     cursor.execute("UPDATE guildInfo SET inGame = ? WHERE guildId = ?", (1, ctx.guild.id))
     con.commit()
 
-    await ctx.respond("Je viens d'envoyer les rôles à tout le monde... 🕵️")
+    await ctx.channel.send("Je viens d'envoyer les rôles à tout le monde... 🕵️")
 
 
 @bot.slash_command(
@@ -709,7 +715,7 @@ async def position(
         return
 
     # Vérifie que la partie n'a pas encore commencé
-    if getGameState(ctx) not in [2, 3]:
+    if getGameState(ctx) not in [1, 2]:
         await ctx.respond("Trop tard... la partie a déjà commencé depuis plus de 30 secondes.")
         return
 
@@ -814,7 +820,7 @@ async def start(ctx):
 
 @bot.slash_command(
     name="end",
-    description="Pour indiquer au bot que la partie est terminée !"
+    description="Pour indiquer au bot que la partie est terminée. N'utiliser QUE LORSQUE l'écran des stats a chargé."
 )
 async def end(
         ctx,
@@ -832,7 +838,6 @@ async def end(
             game = lcu.get("/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=0")["games"]["games"][0]
             gameTimeline = lcu.get(f"/lol-match-history/v1/game-timelines/{game['gameId']}")
             gameData = [game, gameTimeline]
-            print(gameData)
         except (LCUClosedError, LCUDisconnectedError):
             await ctx.channel.send(f"{ctx.author.mention} Spy n'est visiblement pas connecté, il me faut les données de la partie dans un .txt en argument :/")
     else:
@@ -910,11 +915,27 @@ async def report(
 
 
 @bot.slash_command(
-    name="test"
+    name="scoreboard",
+    description="Montre les joueurs ayant le plus de point. Si c'est toi, bravo. Tu peux flex."
 )
-async def test(ctx):
-    print(gameData["endOfGameResult"])
-    await ctx.respond("RESPONSE OUI OUI MONSIEUR TEST UN DEUX UN DEUX ALLOOOO")
+async def scoreboard(ctx):
+    cursor.execute("SELECT score, discordId FROM player")
+    players = cursor.fetchall()
+
+    embed = discord.Embed()
+    embed.title = "Meilleurs imposteurs de ce serveur :"
+
+    playersFromServer = []  # Scoreboard must only contain players from the server in which the command is executed.
+    for player in players:
+        if ctx.guild.get_member(player[1]) is not None:
+            playersFromServer.append(player)
+
+    playersFromServer.sort(reverse=True)
+
+    embed.add_field(name="__Joueur__", value="\n".join([f"<@!{player[1]}>" for player in playersFromServer]))
+    embed.add_field(name="__Score__", value="\n".join([str(player[0]) for player in playersFromServer]))
+
+    await ctx.respond(embed=embed)
 
 
 @bot.slash_command(
