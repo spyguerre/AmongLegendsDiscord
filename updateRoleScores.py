@@ -2,10 +2,12 @@
 
 def getParticipantId(gameData, nameTag):
     participants = gameData[0]["participantIdentities"]
-    name, tag = nameTag.split("#")
+    name, tag = nameTag.lower().split("#")
     for participant in participants:
-        if participant["player"]["gameName"] == name and participant["player"]["tagLine"] == tag:
+        if participant["player"]["gameName"].lower() == name and participant["player"]["tagLine"].lower() == tag:
             return participant["participantId"]
+
+    print(f"Did not find participant with name '{nameTag}' in match referenced by game data.")
 
 
 def getConvertedTeamId(gameData, participantId):
@@ -56,14 +58,14 @@ def listTowerKills(gameData):
 def getLevel(gameData, participantId, timestamp):  # Returns player level at closest available timestamp before indicated timestamp
     for frame in gameData[1]["frames"]:
         framets = frame["timestamp"]
-        if timestamp >= framets:
+        if timestamp-60*1000 <= framets <= timestamp:
             return frame["participantFrames"][str(participantId)]["level"]
 
 
 def getCoordinates(gameData, participantId, timestamp):  # Returns player coordinates at closest available timestamp before indicated timestamp
     for frame in gameData[1]["frames"]:
         framets = frame["timestamp"]
-        if timestamp >= framets:
+        if timestamp-60*1000 <= framets <= timestamp:
             coordinatesDict = frame["participantFrames"][str(participantId)]["position"]
             return coordinatesDict["x"], coordinatesDict["y"]
 
@@ -71,7 +73,7 @@ def getCoordinates(gameData, participantId, timestamp):  # Returns player coordi
 def getCS(gameData, participantId, timestamp):  # Returns (minions, jglMinions) at closest available timestamp before indicated timestamp
     for frame in gameData[1]["frames"]:
         framets = frame["timestamp"]
-        if timestamp >= framets:
+        if timestamp-60*1000 <= framets <= timestamp:
             participantFrame = frame["participantFrames"][str(participantId)]
             return participantFrame["minionsKilled"], participantFrame["jungleMinionsKilled"]
 
@@ -79,7 +81,7 @@ def getCS(gameData, participantId, timestamp):  # Returns (minions, jglMinions) 
 def getGold(gameData, participantId, timestamp):  # Returns (minions, jglMinions) at closest available timestamp before indicated timestamp
     for frame in gameData[1]["frames"]:
         framets = frame["timestamp"]
-        if timestamp >= framets:
+        if timestamp-60*1000 <= framets <= timestamp:
             participantFrame = frame["participantFrames"][str(participantId)]
             return participantFrame["currentGold"]
 
@@ -260,7 +262,7 @@ def getScoreDroide(gameData, nameTag, ordres):  # Ordres = Liste des couples ("i
             cs1 = getCS(gameData, participantId, ordre[1]*1000+5000)[0]
             cs2 = getCS(gameData, participantId, ordre[1]*1000 + 2*60*1000 + 5000)[0]
             csGaigned = cs2 - cs1
-            if csGaigned > 0:
+            if csGaigned == 0:
                 completedTasks += 1
         elif ordre[0] == "assistEpicMonsters":
             allTakedowns = True
@@ -284,7 +286,7 @@ def getScoreDroide(gameData, nameTag, ordres):  # Ordres = Liste des couples ("i
             deaths = listDeaths(gameData, participantId)
             died = False
             for death in deaths:
-                if ordre[1]*1000 <= death["timestamp"] <= ordre[1]*1000 + 20 * 1000:
+                if ordre[1]*1000 - 20*1000 <= death["timestamp"] <= ordre[1]*1000:
                     died = True
                     break
             if died:
@@ -392,10 +394,10 @@ def getScoreSuperHeros(gameData, nameTag):
 
     score -= 2
     if wonGame:
-        score += 1
-    if hasTeamMostKills:
         score += 2
     if hasTeamMostAssists and hasTeamMostKills:
+        score += 2
+    if hasTeamMostAssists or hasTeamMostKills:
         score += 2
 
     return score
@@ -534,7 +536,7 @@ def getScoreGambler(gameData, enemyNameTags, guesses):
 
     correctGuesses = 0
     for i in range(len(guesses)):  # Itération sur les rôles : i = 0 -> top ... i = 4 -> sup
-        if enemyPositions[int(guesses[i])-1] == i:  # Pourquoi c'était si compliqué :/
+        if enemyPositions[int(guesses[i])-1] == i:  # Pourquoi c'était si compliqué ET CA MARCHE TOUJOURS PAAAAAA
             correctGuesses += 1
 
     if correctGuesses == 5:

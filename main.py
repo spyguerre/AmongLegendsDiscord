@@ -33,6 +33,9 @@ lcu.wait_for_login()
 # Global variables
 key = open("riotKey.txt").read()  # Define Riot API Key
 gameData = {}  # save game data here
+# game = lcu.get("/lol-match-history/v1/games/__________")  # En cas de bug en partie
+# gameTimeline = lcu.get(f"/lol-match-history/v1/game-timelines/{game['gameId']}")
+# gameData = [game, gameTimeline]
 
 
 # Converts an api response to a readable dict
@@ -95,17 +98,18 @@ def listRoles():
             "Tu aimes bien prendre ton temps dans la vie. Mourir peut attendre, gagner aussi. Tu feras donc durer la partie autant que possible. Mais c'est mieux de gagner quand même.",
             []
         ),
-        "gambler": (
+    }
+    """ "gambler": (
             "Tu parie les positions des joueurs adverses pendant l'écran de chargement grâce à `/gamble <top> <jgl> <mid> <adc> <sup>`, en remplissant les rôles avec les numéros correspondants aux joueurs ci-dessous.\nTu obtiens aussi des points bonus pour les bons guess de rôles en fin de partie !",
             []
         )
-    }
+    }"""
 
     return roles
 
 
 def listDroidOrders():
-    orders = {  # Orders can be given 5 minutes in or later
+    orders = {  # Orders can be given 4 minutes in or later
         "blue": {  # order id
             "description": "Invade le blue ennemi à %timestamp.",  # Description
             "integerTimestamp": True,  # Whether or not timestamp for this order should be integer minutes
@@ -211,7 +215,6 @@ def listDroidOrders():
             "description": "Gagne au moins 1000 gold avant %timestamp. (Quitte à vendre des items)",
             "integerTimestamp": True,
             "preferedPositions": [
-                [None, None]
             ],
             "timeToExecute": 55,
             "minimumBreakTime": 0
@@ -281,7 +284,7 @@ async def processGuesses(teams, playChannel):
     for t in [0, 1]:
         guessTabByTeam = []
         for i, playeri in enumerate(teams[t]):
-            playerGuess = playeri[5].split("-")  # Tableau des guess que le joueur i de la team t a input
+            playerGuess = playeri[5].split("/")  # Tableau des guess que le joueur i de la team t a input
             playerGuess.insert(i, None)  # Insérer un None pour avoir des indices cohérents pour l'itération qui suit
             guessTabByTeam.append(playerGuess)
         guessTab.append(guessTabByTeam)
@@ -682,7 +685,7 @@ async def gamble(
     con.commit()
 
     if doublon:
-        await ctx.respond(f"Tu as des doublons dans ta liste : `{'-'.join(gambleList)}`\nTu peux toujours exécuter la commande de nouveau pour changer tes gamble si tu le souhaites.")
+        await ctx.respond(f"Tu as des doublons dans ta liste : `{'/'.join(gambleList)}`\nTu peux toujours exécuter la commande de nouveau pour changer tes gamble si tu le souhaites.")
     else:
         # Retrouver les pings des joueurs de la teams pour preview les gambles
         cursor.execute("SELECT teamId FROM game WHERE discordId = ?", (ctx.author.id,))
@@ -810,7 +813,7 @@ async def start(ctx):
         for droide in droides:
             thisOrders = droide[3]
             for orderId, timestamp in thisOrders:
-                if timestamp == gameTime + ordersDict[orderId]["timeToExecute"]:  # if it's time to give this order
+                if timestamp == gameTime + ordersDict[orderId]["timeToExecute"] + 3:  # if it's time to give this order - Lets 3 more seconds to compensate for late start, process time etc.
                     timestamp2 = timestamp + ordersDict[orderId]["minimumBreakTime"]
                     await droide[0].send("Beep Boop.\n**"+ordersDict[orderId]["description"].replace("%timestamp", f"{str(timestamp // 60).zfill(2)}:{str(timestamp % 60).zfill(2)}").replace("%endtimestamp", f"{str(timestamp2 // 60).zfill(2)}:{str(timestamp2 % 60).zfill(2)}")+"**")
         await asyncio.sleep(1)
@@ -885,7 +888,7 @@ async def report(
 
     # Update guesses into db
     roleList = [role1, role2, role3, role4]
-    cursor.execute("UPDATE game SET guess = ? WHERE discordId = ?", ("-".join(roleList), ctx.author.id))
+    cursor.execute("UPDATE game SET guess = ? WHERE discordId = ?", ("/".join(roleList), ctx.author.id))
     con.commit()
 
     # Create embed for double check
@@ -931,9 +934,23 @@ async def scoreboard(ctx):
             playersFromServer.append(player)
 
     playersFromServer.sort(reverse=True)
+    top10 = playersFromServer[:10]  # N'affiche que les 10 premiers
 
-    embed.add_field(name="__Joueur__", value="\n".join([f"<@!{player[1]}>" for player in playersFromServer]))
-    embed.add_field(name="__Score__", value="\n".join([str(player[0]) for player in playersFromServer]))
+    field1 = [f"{i+1}." for i in range(len(top10))]
+    field2 = [f"<@!{player[1]}>" for player in top10]
+    field3 = [str(player[0]) for player in top10]
+
+    discordIdsSorted = [player[1] for player in playersFromServer]
+    # Le joueur n'est pas dans le top 10 mais est dans la liste des joueurs du serveur ; alors le rajoute en bas pour qu'il voie son rang
+    if ctx.author.id not in discordIdsSorted[:10] and ctx.author.id in discordIdsSorted:
+        rank = discordIdsSorted.index(ctx.author.id)
+        field1 += ["", "|", "", f"{rank+1}."]
+        field2 += ["", "|", "", f"<@!{playersFromServer[rank][1]}>"]
+        field3 += ["", "|", "", f"{playersFromServer[rank][0]}"]
+
+    embed.add_field(name="__n°__", value="\n".join(field1))
+    embed.add_field(name="__Joueur__", value="\n".join(field2))
+    embed.add_field(name="__Score__", value="\n".join(field3))
 
     await ctx.respond(embed=embed)
 
