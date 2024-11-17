@@ -31,8 +31,8 @@ touch riotKey.txt
 touch token.txt
 ```
 
-Enter your riot api token in `riotKey.txt` along with
-your discord bot's token in `token.txt`.
+Enter your [riot api](https://developer.riotgames.com) token in `riotKey.txt` along with
+your [discord bot's](https://discord.com/developers/applications/) token in `token.txt`.
 
 Then run the bot with:
 

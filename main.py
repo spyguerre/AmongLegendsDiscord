@@ -33,9 +33,9 @@ lcu.wait_for_login()
 # Global variables
 key = open("riotKey.txt").read()  # Define Riot API Key
 gameData = {}  # save game data here
-# game = lcu.get("/lol-match-history/v1/games/__________")  # En cas de bug en partie
-# gameTimeline = lcu.get(f"/lol-match-history/v1/game-timelines/{game['gameId']}")
-# gameData = [game, gameTimeline]
+game = lcu.get("/lol-match-history/v1/games/7189052304")  # En cas de bug en partie
+gameTimeline = lcu.get(f"/lol-match-history/v1/game-timelines/{game['gameId']}")
+gameData = [game, gameTimeline]
 
 
 # Converts an api response to a readable dict
@@ -63,7 +63,7 @@ def listRoles():
     # L'imposteur doit être présent dans chaque team et est donc défini à part de la liste qui suit.
     roles = {
         "Roméo": (
-            "Tu es amoureux.se de %joueur de l'équipe adverse et dois mourir dès que cette personne meurt.",
+            "Tu es amoureux.se de %joueur de l'équipe adverse et dois mourir le plus vite possible dès que cette personne meurt.",
             [0, 1, 2, 3, 4]
         ),
         "droïde": (
@@ -91,7 +91,7 @@ def listRoles():
             [0, 1]
         ),
         "radin": (
-            "Tu ne gardes jamais plus de 1200 gold sur toi. Juste au cas où.",
+            "Ne garde jamais plus de 1200 gold sur toi. Juste au cas où.",
             []
         ),
         "philosophe": (
@@ -272,7 +272,7 @@ def addScore(discordId, score):
     cursor.execute("SELECT score FROM player WHERE discordId = ?", (discordId,))
     currentScore = cursor.fetchall()[0][0]
 
-    newScore = currentScore + score
+    newScore = max(0, currentScore + score)
 
     cursor.execute("UPDATE player SET score = ? WHERE discordId = ?", (newScore, discordId))
     con.commit()
@@ -360,7 +360,7 @@ async def processRoles(teams, playChannel, guessTab):
             if playeri[2] == "imposteur":
                 scoreDelta = getScoreImposteur(gameData, playeri[7])
             elif playeri[2] == "Roméo":
-                julietteIndex = playeri[3]
+                julietteIndex = int(playeri[3])
                 julietteNameTag = teams[1-t][julietteIndex][7]
                 scoreDelta = getScoreRomeo(gameData, playeri[7], julietteNameTag)
             elif playeri[2] == "droïde":
@@ -475,6 +475,7 @@ async def profile(ctx, nametag: discord.Option(str, description="Nom_InGame#Tag"
     # Vérifier que le joueur existe
     name, tag = nametag.split("#")
     ans = requests.get(f"https://europe.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{name}/{tag}?api_key={key}")
+    ansJson = ans.json()
     if ans.status_code != 200:  # Si le joueur n'existe pas
         await ctx.respond("Pas trouvé ton profil :/ Vérifie ton nom#tag")
         return
@@ -482,10 +483,11 @@ async def profile(ctx, nametag: discord.Option(str, description="Nom_InGame#Tag"
     # Insérer ou update le joueur en fonction de s'il est déjà dans la table
     cursor.execute(f"SELECT * FROM player WHERE discordId = ?", (ctx.author.id,))
     res = cursor.fetchall()
+    apiNameTag = f"{ansJson['gameName']}#{ansJson['tagLine']}"
     if not len(res):  # Le joueur ne s'est pas encore inscrit
-        cursor.execute(f"INSERT INTO player VALUES (?, ?, ?)", (ctx.author.id, nametag, 0))
+        cursor.execute(f"INSERT INTO player VALUES (?, ?, ?)", (ctx.author.id, apiNameTag, 0))
     else:  # Le joueur était déjà inscrit
-        cursor.execute(f"UPDATE player SET nameTag = ? WHERE discordId = ?", (nametag, ctx.author.id))
+        cursor.execute(f"UPDATE player SET nameTag = ? WHERE discordId = ?", (apiNameTag, ctx.author.id))
     con.commit()
 
     await ctx.respond("Tu es maintenant inscrit :)")

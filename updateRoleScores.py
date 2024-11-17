@@ -4,7 +4,7 @@ def getParticipantId(gameData, nameTag):
     participants = gameData[0]["participantIdentities"]
     name, tag = nameTag.lower().split("#")
     for participant in participants:
-        if participant["player"]["gameName"].lower() == name and participant["player"]["tagLine"].lower() == tag:
+        if participant["player"]["gameName"].lower() == name.lower() and participant["player"]["tagLine"].lower() == tag.lower():
             return participant["participantId"]
 
     print(f"Did not find participant with name '{nameTag}' in match referenced by game data.")
@@ -220,8 +220,8 @@ def getScoreRomeo(gameData, nameTag, julietteNameTag):
             score += 1
         if deathsUnder30/jDeathCount >= 0.5:
             score += 1
-        if deathsOver40/jDeathCount > 0.5:
-            score -= 4
+        if deathsOver40/jDeathCount > 0.6:
+            score -= 2
     else:  # Dans ce cas Juliette n'est jamais morte, donc techniquement Roméo a tous ses points.
         score += 4
 
@@ -481,13 +481,13 @@ def getScoreRadin(gameData, nameTag):
         currentGold = frame["participantFrames"][str(participantId)]["currentGold"]
         maxGold = max(maxGold, currentGold)
 
-    if maxGold <= 1005:
-        score += 1
     if maxGold <= 1205:
         score += 1
-    if maxGold <= 1300:
+    if maxGold <= 1305:
         score += 1
-    if maxGold > 1400:
+    if maxGold <= 1500:
+        score += 1
+    if maxGold > 2000:
         score -= 3
 
     return score
